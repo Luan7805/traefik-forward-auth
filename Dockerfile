@@ -1,5 +1,5 @@
 # Start by building the application.
-FROM golang:1.19 AS build
+FROM golang:1.24 AS build
 
 WORKDIR /usr/src/traefik-forward-auth
 COPY . .

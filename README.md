@@ -204,6 +204,16 @@ Generic OAuth2 Provider:
                                                         [$PROVIDERS_GENERIC_OAUTH_TOKEN_STYLE]
   --providers.generic-oauth.resource=                   Optional resource indicator [$PROVIDERS_GENERIC_OAUTH_RESOURCE]
 
+N8N Integration:
+  --n8n.enabled                                         Enable N8N integration (auto-provisioning and JWT cookie) [$N8N_ENABLED]
+  --n8n.db-connection-string=                           PostgreSQL connection string for N8N database [$N8N_DB_CONNECTION_STRING]
+  --n8n.jwt-secret=                                     N8N JWT secret key (must match N8N_JWT_SECRET) [$N8N_JWT_SECRET]
+  --n8n.jwt-lifetime-hours=                             N8N JWT lifetime in hours (default: 168 hours / 7 days) [$N8N_JWT_LIFETIME_HOURS]
+  --n8n.cookie-name=                                    N8N authentication cookie name (default: "n8n-auth") [$N8N_COOKIE_NAME]
+  --n8n.cookie-domain=                                  Domain to set N8N auth cookie on (optional, defaults to request host or main cookie-domain) [$N8N_COOKIE_DOMAIN]
+  --n8n.cookie-secure                                   Use secure attribute for N8N cookie (inferred from --insecure-cookie if not set) [$N8N_COOKIE_SECURE]
+  --n8n.cookie-same-site=[lax|strict|none]              SameSite attribute for N8N cookie (default: "lax") [$N8N_COOKIE_SAME_SITE]
+
 Help Options:
   -h, --help                                            Show this help message
 ```

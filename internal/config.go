@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -27,18 +28,18 @@ type Config struct {
 
 	AuthHost               string               `long:"auth-host" env:"AUTH_HOST" description:"Single host to use when returning from 3rd party auth"`
 	Config                 func(s string) error `long:"config" env:"CONFIG" description:"Path to config file" json:"-"`
-	CookieDomains          []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" env-delim:"," description:"Domain to set auth cookie on, can be set multiple times"`
-	InsecureCookie         bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies"`
-	CookieName             string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"Cookie Name"`
+	CookieDomains          []CookieDomain       `long:"cookie-domain" env:"COOKIE_DOMAIN" env-delim:"," description:"Domain(s) to set main auth cookie on, can be set multiple times"`
+	InsecureCookie         bool                 `long:"insecure-cookie" env:"INSECURE_COOKIE" description:"Use insecure cookies for main auth cookie"`
+	CookieName             string               `long:"cookie-name" env:"COOKIE_NAME" default:"_forward_auth" description:"Main auth cookie Name"`
 	CSRFCookieName         string               `long:"csrf-cookie-name" env:"CSRF_COOKIE_NAME" default:"_forward_auth_csrf" description:"CSRF Cookie Name"`
 	DefaultAction          string               `long:"default-action" env:"DEFAULT_ACTION" default:"auth" choice:"auth" choice:"allow" description:"Default action"`
 	DefaultProvider        string               `long:"default-provider" env:"DEFAULT_PROVIDER" default:"google" choice:"google" choice:"oidc" choice:"generic-oauth" description:"Default provider"`
 	Domains                CommaSeparatedList   `long:"domain" env:"DOMAIN" env-delim:"," description:"Only allow given email domains, comma separated, can be set multiple times"`
-	LifetimeString         int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Lifetime in seconds"`
+	LifetimeString         int                  `long:"lifetime" env:"LIFETIME" default:"43200" description:"Main auth cookie lifetime in seconds"`
 	LogoutRedirect         string               `long:"logout-redirect" env:"LOGOUT_REDIRECT" description:"URL to redirect to following logout"`
 	MatchWhitelistOrDomain bool                 `long:"match-whitelist-or-domain" env:"MATCH_WHITELIST_OR_DOMAIN" description:"Allow users that match *either* whitelist or domain (enabled by default in v3)"`
 	Path                   string               `long:"url-path" env:"URL_PATH" default:"/_oauth" description:"Callback URL Path"`
-	SecretString           string               `long:"secret" env:"SECRET" description:"Secret used for signing (required)" json:"-"`
+	SecretString           string               `long:"secret" env:"SECRET" description:"Secret used for signing main auth cookie (required)" json:"-"`
 	UserPath               string               `long:"user-id-path" env:"USER_ID_PATH" default:"email" description:"Dot notation path of a UserID for use with whitelist and X-Forwarded-User"`
 	Whitelist              CommaSeparatedList   `long:"whitelist" env:"WHITELIST" env-delim:"," description:"Only allow given UserID, comma separated, can be set multiple times"`
 	Port                   int                  `long:"port" env:"PORT" default:"4181" description:"Port to listen on"`
@@ -81,6 +82,7 @@ func NewGlobalConfig() *Config {
 func NewConfig(args []string) (*Config, error) {
 	c := &Config{
 		Rules: map[string]*Rule{},
+		N8N:   N8NConfig{CookieSecure: true},
 	}
 
 	err := c.parseFlags(args)
@@ -135,6 +137,14 @@ func NewConfig(args []string) (*Config, error) {
 	}
 	c.Secret = []byte(c.SecretString)
 	c.Lifetime = time.Second * time.Duration(c.LifetimeString)
+
+	// N8N JWT Lifetime
+	c.N8N.jwtLifetime = time.Hour * time.Duration(c.N8N.JwtLifetimeHours)
+
+	// Infer N8N Cookie Secure based on main InsecureCookie if not explicitly set via N8N_COOKIE_SECURE
+	if os.Getenv("N8N_COOKIE_SECURE") == "" { // Check if env var was explicitly set
+		c.N8N.CookieSecure = !c.InsecureCookie
+	}
 
 	if err := c.parseTrustedNetworks(); err != nil {
 		return nil, err
@@ -299,6 +309,18 @@ func (c *Config) Validate() {
 		if c.N8N.DbConnectionString == "" {
 			log.Fatal("\"n8n.db-connection-string\" option must be set when \"n8n.enabled\" is true")
 		}
+		if c.N8N.JwtSecret == "" {
+			log.Fatal("\"n8n.jwt-secret\" option must be set when \"n8n.enabled\" is true")
+		}
+		// Valida SameSite
+		validSameSite := map[string]http.SameSite{
+			"lax":    http.SameSiteLaxMode,
+			"strict": http.SameSiteStrictMode,
+			"none":   http.SameSiteNoneMode,
+		}
+		if _, ok := validSameSite[strings.ToLower(c.N8N.CookieSameSite)]; !ok {
+			log.Fatalf("invalid value for \"n8n.cookie-same-site\": %s. Must be one of lax, strict, none", c.N8N.CookieSameSite)
+		}
 	}
 
 	// Setup default provider
@@ -441,6 +463,14 @@ func (c *CommaSeparatedList) MarshalFlag() (string, error) {
 
 // N8NConfig holds configuration for N8N user provisioning
 type N8NConfig struct {
-	Enabled            bool   `long:"enabled" env:"ENABLED" description:"Enable N8N auto-provisioning"`
+	Enabled            bool   `long:"enabled" env:"ENABLED" description:"Enable N8N integration (auto-provisioning and JWT cookie)"`
 	DbConnectionString string `long:"db-connection-string" env:"DB_CONNECTION_STRING" description:"PostgreSQL connection string for N8N database" json:"-"`
+	JwtSecret          string `long:"jwt-secret" env:"JWT_SECRET" description:"N8N JWT secret key (must match N8N_JWT_SECRET)" json:"-"`
+	JwtLifetimeHours   int    `long:"jwt-lifetime-hours" env:"JWT_LIFETIME_HOURS" default:"168" description:"N8N JWT lifetime in hours (default: 168 hours / 7 days)"`
+	CookieName         string `long:"cookie-name" env:"COOKIE_NAME" default:"n8n-auth" description:"N8N authentication cookie name"`
+	CookieDomain       string `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set N8N auth cookie on (optional, defaults to request host or cookie-domain)"`
+	CookieSecure       bool   `long:"cookie-secure" env:"COOKIE_SECURE" description:"Use secure attribute for N8N cookie (set automatically based on proto if not specified)"`
+	CookieSameSite     string `long:"cookie-same-site" env:"COOKIE_SAME_SITE" default:"lax" choice:"lax" choice:"strict" choice:"none" description:"SameSite attribute for N8N cookie"`
+
+	jwtLifetime time.Duration
 }

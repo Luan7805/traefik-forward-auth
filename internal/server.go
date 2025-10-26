@@ -2,7 +2,9 @@ package tfa
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -10,16 +12,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/jordemort/traefik-forward-auth/internal/provider"
+	_ "github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 	mux "github.com/traefik/traefik/v2/pkg/muxer/http"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Server contains router and handler methods
 type Server struct {
 	muxer *mux.Muxer
 	db    *sql.DB
+}
+
+type n8nUserData struct {
+	ID         string
+	Password   string
+	MfaEnabled bool
+	MfaSecret  sql.NullString
 }
 
 // NewServer creates a new server object and builds router
@@ -215,34 +227,192 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			return
 		}
 
-		// Get user
-		user, err := p.GetUser(token, config.UserPath)
+		// Get user email from provider
+		userEmail, err := p.GetUser(token, config.UserPath)
 		if err != nil {
-			logger.WithField("error", err).Error("Error getting user")
+			logger.WithField("error", err).Error("Error getting user from provider")
 			http.Error(w, "Service unavailable", 503)
 			return
 		}
 
-		if s.db != nil {
-			err := s.provisionN8NUser(user)
+		// --- INÍCIO: N8N Integração ---
+		var n8nUser *n8nUserData
+		if config.N8N.Enabled && s.db != nil {
+			// 1. Provisiona (cria se não existe) o usuário no N8N DB
+			err = s.provisionN8NUser(userEmail) // Usando userEmail obtido do provider
 			if err != nil {
-				logger.WithField("error", err).Error("Failed to provision N8N user")
+				logger.WithFields(logrus.Fields{
+					"email": userEmail,
+					"error": err,
+				}).Error("Failed to provision N8N user")
 				http.Error(w, "Service unavailable (user provisioning failed)", 503)
 				return
 			}
-		}
 
-		// Generate cookie
-		http.SetCookie(w, MakeCookie(r, user))
+			// 2. Busca os dados necessários do usuário N8N para gerar o JWT
+			n8nUser, err = s.getN8NUserData(userEmail)
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"email": userEmail,
+					"error": err,
+				}).Error("Failed to get N8N user data after provisioning")
+				http.Error(w, "Service unavailable (failed to retrieve user data)", 503)
+				return
+			}
+			if n8nUser == nil {
+				// Isso não deveria acontecer se provisionN8NUser funcionou
+				logger.WithField("email", userEmail).Error("N8N user not found after provisioning check")
+				http.Error(w, "Internal Server Error (user inconsistency)", 500)
+				return
+			}
+
+			// 3. Gera o JWT do N8N
+			n8nJwtToken, err := s.generateN8NJwt(n8nUser, userEmail) // Passa o userEmail também
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"email": userEmail,
+					"error": err,
+				}).Error("Failed to generate N8N JWT")
+				http.Error(w, "Service unavailable (JWT generation failed)", 503)
+				return
+			}
+
+			// 4. Cria e define o cookie do N8N
+			n8nCookie := s.makeN8NCookie(r, n8nJwtToken)
+			http.SetCookie(w, n8nCookie)
+			logger.WithFields(logrus.Fields{
+				"email":   userEmail,
+				"user_id": n8nUser.ID,
+			}).Info("N8N JWT cookie set")
+
+		}
+		// --- FIM: N8N Integração ---
+
+		// Gera o cookie principal do traefik-forward-auth (usa o email do provider)
+		http.SetCookie(w, MakeCookie(r, userEmail))
 		logger.WithFields(logrus.Fields{
 			"provider": providerName,
 			"redirect": redirect,
-			"user":     user,
+			"user":     userEmail,
 		}).Info("Successfully generated auth cookie, redirecting user.")
 
 		// Redirect
 		http.Redirect(w, r, redirectURL.String(), http.StatusTemporaryRedirect)
 	}
+}
+
+// Search for user N8N data in the database
+func (s *Server) getN8NUserData(email string) (*n8nUserData, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+
+	user := &n8nUserData{}
+	query := `SELECT id, password, "mfaEnabled", "mfaSecret" FROM public."user" WHERE email = $1`
+	err := s.db.QueryRow(query, email).Scan(&user.ID, &user.Password, &user.MfaEnabled, &user.MfaSecret)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // User not found
+		}
+		return nil, fmt.Errorf("failed to query N8N user data: %w", err)
+	}
+
+	return user, nil
+}
+
+// Copy of N8N createJWTHash logic (using password hash)
+func (s *Server) createN8NJwtHash(email string, n8nUser *n8nUserData) string {
+	payloadParts := []string{email, n8nUser.Password} // Inclui o hash da senha!
+	if n8nUser.MfaEnabled && n8nUser.MfaSecret.Valid && len(n8nUser.MfaSecret.String) >= 3 {
+		payloadParts = append(payloadParts, n8nUser.MfaSecret.String[:3])
+	}
+	payload := strings.Join(payloadParts, ":")
+
+	hasher := sha256.New()
+	hasher.Write([]byte(payload))
+	hashBytes := hasher.Sum(nil)
+
+	// Codifica em Base64 e pega os primeiros 10 caracteres
+	encodedHash := base64.StdEncoding.EncodeToString(hashBytes)
+	if len(encodedHash) > 10 {
+		return encodedHash[:10]
+	}
+	return encodedHash
+}
+
+// Generates N8N JWT token
+func (s *Server) generateN8NJwt(n8nUser *n8nUserData, email string) (string, error) {
+	n8nHash := s.createN8NJwtHash(email, n8nUser)
+	now := time.Now()
+	expiresAt := now.Add(config.N8N.jwtLifetime).Unix()
+	issuedAt := now.Unix()
+
+	// Payload N8N (omitindo browserId por simplicidade inicial)
+	claims := jwt.MapClaims{
+		"id":      n8nUser.ID,
+		"hash":    n8nHash,
+		"usedMfa": false, // Assumindo que MFA foi tratado pelo SSO externo
+		"iat":     issuedAt,
+		"exp":     expiresAt,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString([]byte(config.N8N.JwtSecret))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign N8N JWT: %w", err)
+	}
+
+	return signedToken, nil
+}
+
+// Creates the http.Cookie object for N8N
+func (s *Server) makeN8NCookie(r *http.Request, token string) *http.Cookie {
+	// Determina o domínio do cookie
+	cookieDomain := config.N8N.CookieDomain
+	if cookieDomain == "" {
+		// Se não definido especificamente para N8N, tenta usar o domínio
+		// principal do traefik-forward-auth ou o host da requisição
+		cookieDomain = s.getEffectiveCookieDomain(r)
+	}
+
+	// Mapeia SameSite string para http.SameSite
+	sameSiteMode := http.SameSiteLaxMode // Default
+	switch strings.ToLower(config.N8N.CookieSameSite) {
+	case "strict":
+		sameSiteMode = http.SameSiteStrictMode
+	case "none":
+		sameSiteMode = http.SameSiteNoneMode
+	}
+
+	return &http.Cookie{
+		Name:     config.N8N.CookieName,
+		Value:    token,
+		Path:     "/",
+		Domain:   cookieDomain,
+		MaxAge:   int(config.N8N.jwtLifetime.Seconds()), // Usa MaxAge para cookies de sessão
+		HttpOnly: true,
+		Secure:   config.N8N.CookieSecure,
+		SameSite: sameSiteMode,
+	}
+}
+
+// Helper function to determine the domain of the N8N cookie
+func (s *Server) getEffectiveCookieDomain(r *http.Request) string {
+	// Checks if any of the configured primary domains matches the current host
+	// Removes the host port from the request before comparing
+	reqHost := r.Host
+	if idx := strings.LastIndex(reqHost, ":"); idx != -1 {
+		reqHost = reqHost[:idx]
+	}
+
+	for _, d := range config.CookieDomains {
+		if d.Match(reqHost) {
+			return d.Domain // Retorna o domínio configurado se houver correspondência
+		}
+	}
+	// If no configured domain matches, return just the host (no port)
+	return reqHost
 }
 
 // LogoutHandler logs a user out
@@ -352,7 +522,18 @@ func (s *Server) provisionN8NUser(email string) error {
 		lastName = strings.Title(nameParts[len(nameParts)-1])
 	}
 
-	passwordHash := "SSO"
+	randomPassword, err := s.generateRandomString(20) // Ajuste o tamanho conforme necessário
+	if err != nil {
+		return fmt.Errorf("failed to generate random password: %w", err)
+	}
+
+	// Generate bcrypt hash of the random password
+	hashedPasswordBytes, err := bcrypt.GenerateFromPassword([]byte(randomPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+	passwordHash := string(hashedPasswordBytes)
+	log.WithField("email", email).Debugf("Generated temporary password hash for new user")
 
 	projectID, err := s.generateRandomString(16)
 	if err != nil {
