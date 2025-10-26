@@ -1,10 +1,15 @@
 module github.com/jordemort/traefik-forward-auth
 
-go 1.19
+go 1.24.0
+
+toolchain go1.24.3
 
 require (
 	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/coreos/go-oidc v2.2.1+incompatible
+	github.com/golang-jwt/jwt/v4 v4.2.0
+	github.com/google/uuid v1.3.0
+	github.com/lib/pq v1.10.9
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.1
 	github.com/thomseddon/go-flags v1.4.1-0.20190507184247-a3629c504486
@@ -26,13 +31,14 @@ require (
 	github.com/pquerna/cachecontrol v0.1.0 // indirect
 	github.com/traefik/paerser v0.1.9 // indirect
 	github.com/vulcand/predicate v1.2.0 // indirect
-	golang.org/x/crypto v0.1.0 // indirect
-	golang.org/x/mod v0.6.0 // indirect
-	golang.org/x/net v0.5.0 // indirect
-	golang.org/x/sys v0.4.0 // indirect
-	golang.org/x/term v0.4.0 // indirect
-	golang.org/x/text v0.6.0 // indirect
-	golang.org/x/tools v0.2.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
+	golang.org/x/mod v0.28.0 // indirect
+	golang.org/x/net v0.45.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/term v0.36.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
+	golang.org/x/tools v0.37.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
