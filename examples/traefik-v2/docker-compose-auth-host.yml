@@ -1,9 +1,11 @@
-version: '3'
-
 services:
   traefik:
-    image: traefik:v2.2
-    command: --providers.docker
+    image: traefik:v2
+    command:
+      - --providers.docker
+      # This example uses "global authentication"
+      - --entryPoints.http.address=:80
+      - --entrypoints.http.http.middlewares=traefik-forward-auth
     ports:
       - "8085:80"
       - "8086:8080"
@@ -14,8 +16,6 @@ services:
     image: containous/whoami
     labels:
       - "traefik.http.routers.whoami.rule=Host(`whoami.localhost.com`)"
-      # This example uses "Selective Authentication"
-      - "traefik.http.routers.whoami.middlewares=traefik-forward-auth"
 
   traefik-forward-auth:
     image: thomseddon/traefik-forward-auth:2
@@ -25,8 +25,11 @@ services:
       - SECRET=something-random
       # INSECURE_COOKIE is required if not using a https entrypoint
       - INSECURE_COOKIE=true
+      - COOKIE_DOMAIN=localhost.com
+      - AUTH_HOST=auth.localhost.com:8085
       - LOG_LEVEL=debug
     labels:
+      - "traefik.http.routers.traefik-forward-auth.rule=Host(`auth.localhost.com`)"
       - "traefik.http.middlewares.traefik-forward-auth.forwardauth.address=http://traefik-forward-auth:4181"
       - "traefik.http.middlewares.traefik-forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User"
       - "traefik.http.services.traefik-forward-auth.loadbalancer.server.port=4181"
