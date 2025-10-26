@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      CONTAINER_NAME: ghcr.io/${{ github.repository }}
       BUILD_PLATFORMS: linux/amd64,linux/arm,linux/arm64,linux/ppc64le,linux/s390x
       RAW_CONTAINER_TAG: ${{ github.event.inputs.container_tag || github.event.pull_request.head.ref || 'latest' }}
       RAW_REF_NAME: ${{ github.event.pull_request.head.ref || github.ref }}
@@ -45,6 +44,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set container name
+        run: echo "CONTAINER_NAME=$(echo ghcr.io/${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       # Needed for buildx gha cache to work
       - name: Expose GitHub Runtime
         uses: crazy-max/ghaction-github-runtime@v2
@@ -57,7 +59,7 @@ jobs:
           REF_NAME=$(echo "$RAW_REF_NAME" | sed -r 's#^refs/(heads|tags)/##')
           docker buildx build \
             --platform "$BUILD_PLATFORMS" \
-            --tag "$CONTAINER_NAME:$CONTAINER_TAG" \
+            --tag "${{ env.CONTAINER_NAME }}:$CONTAINER_TAG" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.documentation=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/packages" \
