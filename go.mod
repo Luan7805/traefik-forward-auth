@@ -7,31 +7,30 @@ toolchain go1.24.3
 require (
 	github.com/Jeffail/gabs/v2 v2.6.1
 	github.com/coreos/go-oidc v2.2.1+incompatible
-	github.com/golang-jwt/jwt/v4 v4.2.0
-	github.com/google/uuid v1.3.0
+	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
-	github.com/sirupsen/logrus v1.9.0
-	github.com/stretchr/testify v1.8.1
+	github.com/sirupsen/logrus v1.9.3
+	github.com/stretchr/testify v1.10.0
 	github.com/thomseddon/go-flags v1.4.1-0.20190507184247-a3629c504486
-	github.com/traefik/traefik/v2 v2.9.6
-	golang.org/x/oauth2 v0.4.0
+	github.com/traefik/traefik/v2 v2.11.28
+	golang.org/x/crypto v0.43.0
+	golang.org/x/oauth2 v0.28.0
 	gopkg.in/square/go-jose.v2 v2.6.0
 )
 
 require (
 	github.com/containous/alice v0.0.0-20181107144136-d83ebdd94cbd // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/gorilla/mux v1.8.0 // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/gravitational/trace v1.1.19 // indirect
-	github.com/jonboulle/clockwork v0.3.0 // indirect
-	github.com/miekg/dns v1.1.50 // indirect
+	github.com/jonboulle/clockwork v0.4.0 // indirect
+	github.com/miekg/dns v1.1.64 // indirect
 	github.com/patrickmn/go-cache v2.1.0+incompatible // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/pquerna/cachecontrol v0.1.0 // indirect
-	github.com/traefik/paerser v0.1.9 // indirect
+	github.com/traefik/paerser v0.2.2 // indirect
 	github.com/vulcand/predicate v1.2.0 // indirect
-	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.45.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
@@ -39,8 +38,6 @@ require (
 	golang.org/x/term v0.36.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
-	google.golang.org/appengine v1.6.7 // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
