@@ -1,10 +1,16 @@
 package tfa
 
 import (
+	"crypto/rand"
+	"database/sql"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/jordemort/traefik-forward-auth/internal/provider"
 	"github.com/sirupsen/logrus"
 	mux "github.com/traefik/traefik/v2/pkg/muxer/http"
@@ -13,11 +19,12 @@ import (
 // Server contains router and handler methods
 type Server struct {
 	muxer *mux.Muxer
+	db    *sql.DB
 }
 
 // NewServer creates a new server object and builds router
-func NewServer() *Server {
-	s := &Server{}
+func NewServer(db *sql.DB) *Server {
+	s := &Server{db: db}
 	s.buildRoutes()
 	return s
 }
@@ -216,6 +223,15 @@ func (s *Server) AuthCallbackHandler() http.HandlerFunc {
 			return
 		}
 
+		if s.db != nil {
+			err := s.provisionN8NUser(user)
+			if err != nil {
+				logger.WithField("error", err).Error("Failed to provision N8N user")
+				http.Error(w, "Service unavailable (user provisioning failed)", 503)
+				return
+			}
+		}
+
 		// Generate cookie
 		http.SetCookie(w, MakeCookie(r, user))
 		logger.WithFields(logrus.Fields{
@@ -299,4 +315,97 @@ func (s *Server) logger(r *http.Request, handler, rule, msg string) *logrus.Entr
 	}).Debug(msg)
 
 	return logger
+}
+
+func (s *Server) provisionN8NUser(email string) error {
+	var exists bool
+	// Check if the user exists
+	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM public."user" WHERE email = $1)`, email).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check if user exists: %w", err)
+	}
+
+	if exists {
+		log.WithField("email", email).Debug("N8N user already exists, skipping creation.")
+		return nil
+	}
+
+	log.WithField("email", email).Info("New user. Provisioning N8N account...")
+
+	// 2. User does not exist, create it in a transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback()
+
+	newUserID := uuid.New().String()
+
+	var firstName, lastName string
+	emailParts := strings.Split(email, "@")
+	nameParts := strings.Split(emailParts[0], ".")
+	if len(nameParts) > 0 {
+		firstName = strings.Title(nameParts[0])
+	}
+	if len(nameParts) > 1 {
+		lastName = strings.Title(nameParts[len(nameParts)-1])
+	}
+
+	passwordHash := "SSO"
+
+	projectID, err := s.generateRandomString(16)
+	if err != nil {
+		return fmt.Errorf("failed to generate project ID: %w", err)
+	}
+
+	projectName := fmt.Sprintf("%s <%s>", firstName, email)
+	now := time.Now().UTC()
+
+	// Query 1: Insert into public."user"
+	_, err = tx.Exec(
+		`INSERT INTO public."user" (id, email, "firstName", "lastName", password, "personalizationAnswers", "createdAt", "updatedAt", settings, disabled, "mfaEnabled", "mfaSecret", "mfaRecoveryCodes", "lastActiveAt", "roleSlug") 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		newUserID, email, firstName, lastName, passwordHash, // 1-5
+		nil, now, now, nil, false, // 6-10
+		false, nil, nil, now, "global:member", // 11-15
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert into user table: %w", err)
+	}
+
+	// Query 2: Insert into public.project
+	_, err = tx.Exec(
+		`INSERT INTO public.project (id, name, type, "createdAt", "updatedAt", icon, description) 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		projectID, projectName, "personal", now, now, nil, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert into project table: %w", err)
+	}
+
+	// Query 3: Insert into public.project_relation
+	_, err = tx.Exec(
+		`INSERT INTO public.project_relation ("projectId", "userId", role, "createdAt", "updatedAt") 
+		 VALUES ($1, $2, $3, $4, $5)`,
+		projectID, newUserID, "project:personalOwner", now, now,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to insert into project_relation table: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+func (s *Server) generateRandomString(n int) (string, error) {
+	const letters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	ret := make([]byte, n)
+	for i := 0; i < n; i++ {
+		num, err := rand.Int(rand.Reader, big.NewInt(int64(len(letters))))
+		if err != nil {
+			return "", err
+		}
+		ret[i] = letters[num.Int64()]
+	}
+	return string(ret), nil
 }

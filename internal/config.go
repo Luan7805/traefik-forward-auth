@@ -44,6 +44,7 @@ type Config struct {
 	Port                   int                  `long:"port" env:"PORT" default:"4181" description:"Port to listen on"`
 
 	Providers provider.Providers `group:"providers" namespace:"providers" env-namespace:"PROVIDERS"`
+	N8N       N8NConfig          `group:"n8n" namespace:"n8n" env-namespace:"N8N"`
 	Rules     map[string]*Rule   `long:"rule.<name>.<param>" description:"Rule definitions, param can be: \"action\", \"rule\" or \"provider\""`
 
 	// Filled during transformations
@@ -294,6 +295,12 @@ func (c *Config) Validate() {
 		log.Fatal("\"secret\" option must be set")
 	}
 
+	if c.N8N.Enabled {
+		if c.N8N.DbConnectionString == "" {
+			log.Fatal("\"n8n.db-connection-string\" option must be set when \"n8n.enabled\" is true")
+		}
+	}
+
 	// Setup default provider
 	err := c.setupProvider(c.DefaultProvider)
 	if err != nil {
@@ -339,7 +346,6 @@ func (c *Config) GetConfiguredProvider(name string) (provider.Provider, error) {
 	return c.GetProvider(name)
 }
 
-//
 func (c *Config) IsIPAddressAuthenticated(address string) (bool, error) {
 	addr := net.ParseIP(address)
 	if addr == nil {
@@ -431,4 +437,10 @@ func (c *CommaSeparatedList) UnmarshalFlag(value string) error {
 // MarshalFlag converts an array back to a comma separated list
 func (c *CommaSeparatedList) MarshalFlag() (string, error) {
 	return strings.Join(*c, ","), nil
+}
+
+// N8NConfig holds configuration for N8N user provisioning
+type N8NConfig struct {
+	Enabled            bool   `long:"enabled" env:"ENABLED" description:"Enable N8N auto-provisioning"`
+	DbConnectionString string `long:"db-connection-string" env:"DB_CONNECTION_STRING" description:"PostgreSQL connection string for N8N database" json:"-"`
 }
