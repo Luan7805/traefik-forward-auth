@@ -463,14 +463,16 @@ func (c *CommaSeparatedList) MarshalFlag() (string, error) {
 
 // N8NConfig holds configuration for N8N user provisioning
 type N8NConfig struct {
-	Enabled            bool   `long:"enabled" env:"ENABLED" description:"Enable N8N integration (auto-provisioning and JWT cookie)"`
-	DbConnectionString string `long:"db-connection-string" env:"DB_CONNECTION_STRING" description:"PostgreSQL connection string for N8N database" json:"-"`
-	JwtSecret          string `long:"jwt-secret" env:"JWT_SECRET" description:"N8N JWT secret key (must match N8N_JWT_SECRET)" json:"-"`
-	JwtLifetimeHours   int    `long:"jwt-lifetime-hours" env:"JWT_LIFETIME_HOURS" default:"168" description:"N8N JWT lifetime in hours (default: 168 hours / 7 days)"`
-	CookieName         string `long:"cookie-name" env:"COOKIE_NAME" default:"n8n-auth" description:"N8N authentication cookie name"`
-	CookieDomain       string `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set N8N auth cookie on (optional, defaults to request host or cookie-domain)"`
-	CookieSecure       bool   `long:"cookie-secure" env:"COOKIE_SECURE" description:"Use secure attribute for N8N cookie (set automatically based on proto if not specified)"`
-	CookieSameSite     string `long:"cookie-same-site" env:"COOKIE_SAME_SITE" default:"lax" choice:"lax" choice:"strict" choice:"none" description:"SameSite attribute for N8N cookie"`
+	Enabled             bool   `long:"enabled" env:"ENABLED" description:"Enable N8N integration (auto-provisioning and JWT cookie)"`
+	DbConnectionString  string `long:"db-connection-string" env:"DB_CONNECTION_STRING" description:"PostgreSQL connection string for N8N database" json:"-"`
+	JwtSecret           string `long:"jwt-secret" env:"JWT_SECRET" description:"N8N JWT secret key (must match N8N_JWT_SECRET)" json:"-"`
+	JwtLifetimeHours    int    `long:"jwt-lifetime-hours" env:"JWT_LIFETIME_HOURS" default:"168" description:"N8N JWT lifetime in hours (default: 168 hours / 7 days)"`
+	CookieName          string `long:"cookie-name" env:"COOKIE_NAME" default:"n8n-auth" description:"N8N authentication cookie name"`
+	CookieDomain        string `long:"cookie-domain" env:"COOKIE_DOMAIN" description:"Domain to set N8N auth cookie on (optional, defaults to request host or cookie-domain)"`
+	CookieSecure        bool   `long:"cookie-secure" env:"COOKIE_SECURE" description:"Use secure attribute for N8N cookie (set automatically based on proto if not specified)"`
+	CookieSameSite      string `long:"cookie-same-site" env:"COOKIE_SAME_SITE" default:"lax" choice:"lax" choice:"strict" choice:"none" description:"SameSite attribute for N8N cookie"`
+	EndpointWebhook     string `long:"endpoint-webhook" env:"N8N_ENDPOINT_WEBHOOK" default:"webhook" description:"N8N webhook endpoint path"`
+	EndpointWebhookTest string `long:"endpoint-webhook-test" env:"N8N_ENDPOINT_WEBHOOK_TEST" default:"webhook-test" description:"N8N test webhook endpoint path"`
 
 	jwtLifetime time.Duration
 }

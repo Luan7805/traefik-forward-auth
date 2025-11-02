@@ -54,6 +54,27 @@ func (s *Server) buildRoutes() {
 		log.Fatal(err)
 	}
 
+	// Adds public routes if N8N is enabled.
+	if config.N8N.Enabled {
+		// Allow /healthz
+		s.muxer.AddRoute("Path(`/healthz`)", 1, s.AllowHandler("n8n_healthz"))
+		log.Debug("Added public route: /healthz")
+
+		// Allow /mcp/
+		s.muxer.AddRoute("PathPrefix(`/mcp/`)", 1, s.AllowHandler("n8n_mcp"))
+		log.Debug("Added public route: /mcp/")
+
+		// Allow /webhook/*
+		webhookPath := fmt.Sprintf("PathPrefix(`/%s/`)", config.N8N.EndpointWebhook)
+		s.muxer.AddRoute(webhookPath, 1, s.AllowHandler("n8n_webhook"))
+		log.Debugf("Added public route: %s", webhookPath)
+
+		// Allow /webhook-test/*
+		webhookTestPath := fmt.Sprintf("PathPrefix(`/%s/`)", config.N8N.EndpointWebhookTest)
+		s.muxer.AddRoute(webhookTestPath, 1, s.AllowHandler("n8n_webhook_test"))
+		log.Debugf("Added public route: %s", webhookTestPath)
+	}
+
 	// Let's build a router
 	for name, rule := range config.Rules {
 		matchRule := rule.formattedRule()

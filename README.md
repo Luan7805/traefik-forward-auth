@@ -213,6 +213,8 @@ N8N Integration:
   --n8n.cookie-domain=                                  Domain to set N8N auth cookie on (optional, defaults to request host or main cookie-domain) [$N8N_COOKIE_DOMAIN]
   --n8n.cookie-secure                                   Use secure attribute for N8N cookie (inferred from --insecure-cookie if not set) [$N8N_COOKIE_SECURE]
   --n8n.cookie-same-site=[lax|strict|none]              SameSite attribute for N8N cookie (default: "lax") [$N8N_COOKIE_SAME_SITE]
+  --n8n.endpoint-webhook=                               N8N webhook endpoint path (default: "webhook") [$N8N_ENDPOINT_WEBHOOK]
+  --n8n.endpoint-webhook-test=                          N8N test webhook endpoint path (default: "webhook-test") [$N8N_ENDPOINT_WEBHOOK_TEST]
 
 Help Options:
   -h, --help                                            Show this help message
