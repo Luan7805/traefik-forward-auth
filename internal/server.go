@@ -328,6 +328,7 @@ func (s *Server) getN8NUserData(email string) (*n8nUserData, error) {
 		return nil, fmt.Errorf("database connection is nil")
 	}
 
+	email = strings.ToLower(strings.TrimSpace(email))
 	user := &n8nUserData{}
 	query := `SELECT id, password, "mfaEnabled", "mfaSecret" FROM public."user" WHERE email = $1`
 	err := s.db.QueryRow(query, email).Scan(&user.ID, &user.Password, &user.MfaEnabled, &user.MfaSecret)
@@ -344,6 +345,7 @@ func (s *Server) getN8NUserData(email string) (*n8nUserData, error) {
 
 // Copy of N8N createJWTHash logic (using password hash)
 func (s *Server) createN8NJwtHash(email string, n8nUser *n8nUserData) string {
+	email = strings.ToLower(strings.TrimSpace(email))
 	payloadParts := []string{email, n8nUser.Password} // Inclui o hash da senha!
 	if n8nUser.MfaEnabled && n8nUser.MfaSecret.Valid && len(n8nUser.MfaSecret.String) >= 3 {
 		payloadParts = append(payloadParts, n8nUser.MfaSecret.String[:3])
@@ -509,6 +511,8 @@ func (s *Server) logger(r *http.Request, handler, rule, msg string) *logrus.Entr
 }
 
 func (s *Server) provisionN8NUser(email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+
 	var exists bool
 	// Check if the user exists
 	err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM public."user" WHERE email = $1)`, email).Scan(&exists)
@@ -531,19 +535,34 @@ func (s *Server) provisionN8NUser(email string) error {
 
 	defer tx.Rollback()
 
+	// Check if there are any existing users in N8N.
+	// If 0 users exist, the first provisioned user must receive the 'global:owner' role.
+	// Subsequent users receive 'global:member'.
+	var userCount int
+	err = tx.QueryRow(`SELECT COUNT(*) FROM public."user"`).Scan(&userCount)
+	if err != nil {
+		return fmt.Errorf("failed to count existing users: %w", err)
+	}
+
+	roleSlug := "global:member"
+	if userCount == 0 {
+		roleSlug = "global:owner"
+		log.WithField("email", email).Info("First user detected in N8N database. Assigning 'global:owner' role.")
+	}
+
 	newUserID := uuid.New().String()
 
 	var firstName, lastName string
 	emailParts := strings.Split(email, "@")
 	nameParts := strings.Split(emailParts[0], ".")
-	if len(nameParts) > 0 {
+	if len(nameParts) > 0 && nameParts[0] != "" {
 		firstName = strings.Title(nameParts[0])
 	}
-	if len(nameParts) > 1 {
+	if len(nameParts) > 1 && nameParts[len(nameParts)-1] != "" {
 		lastName = strings.Title(nameParts[len(nameParts)-1])
 	}
 
-	randomPassword, err := s.generateRandomString(20) // Ajuste o tamanho conforme necessário
+	randomPassword, err := s.generateRandomString(20)
 	if err != nil {
 		return fmt.Errorf("failed to generate random password: %w", err)
 	}
@@ -561,7 +580,14 @@ func (s *Server) provisionN8NUser(email string) error {
 		return fmt.Errorf("failed to generate project ID: %w", err)
 	}
 
-	projectName := fmt.Sprintf("%s <%s>", firstName, email)
+	var projectName string
+	if firstName != "" && lastName != "" {
+		projectName = fmt.Sprintf("%s %s <%s>", firstName, lastName, email)
+	} else if firstName != "" {
+		projectName = fmt.Sprintf("%s <%s>", firstName, email)
+	} else {
+		projectName = fmt.Sprintf("<%s>", email)
+	}
 	now := time.Now().UTC()
 
 	// Query 1: Insert into public."user"
@@ -570,17 +596,17 @@ func (s *Server) provisionN8NUser(email string) error {
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		newUserID, email, firstName, lastName, passwordHash, // 1-5
 		nil, now, now, nil, false, // 6-10
-		false, nil, nil, now, "global:member", // 11-15
+		false, nil, nil, now, roleSlug, // 11-15
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert into user table: %w", err)
 	}
 
-	// Query 2: Insert into public.project
+	// Query 2: Insert into public.project (includes creatorId, essential for personal project ownership)
 	_, err = tx.Exec(
-		`INSERT INTO public.project (id, name, type, "createdAt", "updatedAt", icon, description) 
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		projectID, projectName, "personal", now, now, nil, nil,
+		`INSERT INTO public.project (id, name, type, "createdAt", "updatedAt", icon, description, "creatorId") 
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		projectID, projectName, "personal", now, now, nil, nil, newUserID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert into project table: %w", err)
