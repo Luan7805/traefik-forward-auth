@@ -673,3 +673,61 @@ func TestN8NMakeCookie(t *testing.T) {
 	assert.True(cookie.Secure)
 	assert.Equal(http.SameSiteLaxMode, cookie.SameSite)
 }
+
+func TestN8NPublicRoutes(t *testing.T) {
+	assert := assert.New(t)
+
+	// Test with N8N Enabled
+	config = newDefaultConfig()
+	config.N8N.Enabled = true
+	config.N8N.EndpointWebhook = "webhook"
+	config.N8N.EndpointWebhookTest = "webhook-test"
+
+	server := NewServer(nil)
+
+	testCasesAllowed := []string{
+		"/healthz",
+		"/api",
+		"/api/",
+		"/api/v1/workflows",
+		"/mcp/",
+		"/mcp/sse",
+		"/webhook/test-hook",
+		"/webhook-test/test-hook",
+	}
+
+	for _, path := range testCasesAllowed {
+		req := newDefaultHttpRequest(path)
+		w := httptest.NewRecorder()
+		server.RootHandler(w, req)
+		res := w.Result()
+		assert.Equal(200, res.StatusCode, fmt.Sprintf("path %s should be allowed without auth when N8N is enabled", path))
+	}
+
+	// Should still block normal protected routes
+	req := newDefaultHttpRequest("/workflows")
+	w := httptest.NewRecorder()
+	server.RootHandler(w, req)
+	assert.Equal(307, w.Result().StatusCode, "normal route should require auth")
+
+	// Test with N8N Disabled
+	config = newDefaultConfig()
+	config.N8N.Enabled = false
+	serverDisabled := NewServer(nil)
+
+	testCasesBlocked := []string{
+		"/healthz",
+		"/api",
+		"/api/v1/workflows",
+		"/mcp/",
+		"/webhook/test-hook",
+	}
+
+	for _, path := range testCasesBlocked {
+		req := newDefaultHttpRequest(path)
+		w := httptest.NewRecorder()
+		serverDisabled.RootHandler(w, req)
+		assert.Equal(307, w.Result().StatusCode, fmt.Sprintf("path %s should require auth when N8N is disabled", path))
+	}
+}
+
