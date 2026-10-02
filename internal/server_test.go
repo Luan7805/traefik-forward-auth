@@ -616,3 +616,60 @@ func newHTTPRequest(method, target string) *http.Request {
 	r.Header.Add("X-Forwarded-For", "127.0.0.1")
 	return r
 }
+
+func TestN8NJwtHash(t *testing.T) {
+	assert := assert.New(t)
+	s := NewServer(nil)
+
+	userData := &n8nUserData{
+		ID:         "test-id",
+		Password:   "$2a$10$abcdefghijklmnopqrstuu",
+		MfaEnabled: false,
+	}
+
+	hash1 := s.createN8NJwtHash("User@Example.com", userData)
+	hash2 := s.createN8NJwtHash("user@example.com", userData)
+	assert.Equal(hash1, hash2, "email casing should not affect hash output")
+	assert.Len(hash1, 10, "hash should be truncated to 10 chars")
+}
+
+func TestN8NGenerateJwt(t *testing.T) {
+	assert := assert.New(t)
+	config = newDefaultConfig()
+	config.N8N.Enabled = true
+	config.N8N.JwtSecret = "super-secret-jwt-key"
+	config.N8N.JwtLifetimeHours = 168
+	config.N8N.jwtLifetime = time.Hour * 168
+
+	s := NewServer(nil)
+	userData := &n8nUserData{
+		ID:         "user-uuid-123",
+		Password:   "$2a$10$hashedpassword",
+		MfaEnabled: false,
+	}
+
+	token, err := s.generateN8NJwt(userData, "test@example.com")
+	assert.NoError(err)
+	assert.NotEmpty(token)
+}
+
+func TestN8NMakeCookie(t *testing.T) {
+	assert := assert.New(t)
+	config = newDefaultConfig()
+	config.N8N.Enabled = true
+	config.N8N.CookieName = "n8n-auth"
+	config.N8N.CookieSameSite = "lax"
+	config.N8N.CookieSecure = true
+	config.N8N.jwtLifetime = time.Hour * 24
+
+	s := NewServer(nil)
+	req := newHTTPRequest("GET", "https://n8n.example.com/workflow")
+
+	cookie := s.makeN8NCookie(req, "dummy-jwt-token")
+	assert.Equal("n8n-auth", cookie.Name)
+	assert.Equal("dummy-jwt-token", cookie.Value)
+	assert.Equal("/", cookie.Path)
+	assert.True(cookie.HttpOnly)
+	assert.True(cookie.Secure)
+	assert.Equal(http.SameSiteLaxMode, cookie.SameSite)
+}
