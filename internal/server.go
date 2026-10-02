@@ -60,6 +60,10 @@ func (s *Server) buildRoutes() {
 		s.muxer.AddRoute("Path(`/healthz`)", 1, s.AllowHandler("n8n_healthz"))
 		log.Debug("Added public route: /healthz")
 
+		// Allow /api
+		s.muxer.AddRoute("PathPrefix(`/api`)", 1, s.AllowHandler("n8n_api"))
+		log.Debug("Added public route: /api")
+
 		// Allow /mcp/
 		s.muxer.AddRoute("PathPrefix(`/mcp/`)", 1, s.AllowHandler("n8n_mcp"))
 		log.Debug("Added public route: /mcp/")
